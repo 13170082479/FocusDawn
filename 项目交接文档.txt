@@ -1,0 +1,73 @@
+﻿项目名称：FocusDawn
+
+项目定位：
+Windows 本地创作守护工具，目标是帮助用户形成“先创作，后娱乐”的日常习惯。
+
+当前状态：
+- 已完成第一版功能闭环。
+- 已完成 FocusDawn 品牌化、app 图标、托盘图标、exe 图标。
+- 已支持创作计时、每日目标、数据分析、托盘常驻、开机自启动。
+- 已支持创作目标方向：开始创作前选择目标，session 绑定 goal_id / goal_name。
+- 已支持本周目标：一级“目标”模块设置每个方向的本周目标小时数，首页/分析页展示完成情况。
+- 已支持游戏/游戏平台进程检测。
+- 默认开启强制关闭。
+- 未达标时检测到黑名单进程会先提醒，弹窗显示 60 秒倒计时，仍未关闭则自动关闭。
+
+核心模块：
+- main.py：程序入口，启动 FocusDawnApp。
+- ui.py：主界面、首页 Canvas 进度卡、目标页、设置页、分析页、日志页、提醒弹窗、托盘。
+- tracker.py：后台计时、当前创作目标、进程扫描、提醒触发、60 秒后自动关闭。
+- storage.py：SQLite 数据库、默认设置、目标/周目标、迁移。
+- analyzer.py：统计分析。
+- startup.py：Windows 开机自启动。
+- config.py：默认目标、默认黑名单、扫描间隔、提醒冷却、自动关闭宽限时间。
+
+当前默认黑名单：
+- steam.exe
+- wegame.exe
+- tgp_daemon.exe
+- client-win64-shipping.exe
+- mistfallhunter-win64-shipping.exe
+- wuthering waves.exe
+
+关键配置：
+- 默认每日创作目标：60 分钟
+- 进程扫描间隔：5 秒
+- 提醒冷却：60 秒
+- 自动关闭宽限时间：60 秒
+- 默认强制关闭：开启
+
+运行方式：
+1. pip install -r requirements.txt
+2. python main.py
+
+打包方式：
+- powershell -ExecutionPolicy Bypass -File .\build.ps1
+- 或运行 build.bat
+
+打包产物：
+- dist\FocusDawn.exe
+
+数据位置：
+- data\makedawn.db
+
+重要资产：
+- assets\ui\app_icon.png
+- assets\ui\app_icon.ico
+- assets\ui\bg_landscape.png
+
+注意事项：
+- 进程检测和关闭依赖 psutil，打包时需要确认 psutil 被 PyInstaller 打进去。
+- 黑名单按真实 exe 进程名匹配，不按 Steam/WeGame 的游戏显示名匹配。
+- 旧创作记录如果没有目标，会归入“未分类”。
+- 周目标目前支持当前周设置；历史周完成率、目标归档和完整编辑放第二阶段。
+- 强制关闭游戏平台可能有权限或平台自恢复问题，暂未默认关闭 service 类进程。
+- ui.py 和 tracker.py 中仍有部分历史中文乱码，建议后续清理。
+
+建议下一步：
+1. 目标管理完整编辑：名称、图标、颜色、归档。
+2. 历史每周完成率。
+3. 趋势图按目标筛选。
+4. 设置页增加“扫描当前娱乐进程”按钮。
+5. 黑名单升级为分组管理：游戏平台、游戏、附属进程。
+6. 修复历史乱码字符串。
