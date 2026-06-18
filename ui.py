@@ -738,7 +738,7 @@ class FocusDawnApp(ctk.CTk):
             fg_color="transparent",
             hover_color=COLORS["bg_secondary"],
             text_color=COLORS["brand_light"],
-            command=lambda: self._show_page("logs"),
+            command=lambda: self._show_page("analysis"),
         ).pack(anchor="center", pady=(0, 10))
 
     def _build_weekly_chart_card(self, parent, row: int, column: int) -> None:
@@ -859,15 +859,13 @@ class FocusDawnApp(ctk.CTk):
         panel.grid(row=0, column=0, sticky="ew", pady=(0, SPACE["card"]))
         panel.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(panel, text="设置", font=(FONT_FAMILY, 24, "bold"), text_color=COLORS["text"]).grid(row=0, column=0, columnspan=2, sticky="w", padx=24, pady=(24, 18))
-        ctk.CTkLabel(panel, text="每日创作目标", text_color=COLORS["text_secondary"]).grid(row=1, column=0, sticky="w", padx=24, pady=10)
-        ctk.CTkEntry(panel, textvariable=self.goal_var, height=42, fg_color=COLORS["bg_secondary"], border_color=COLORS["border"]).grid(row=1, column=1, sticky="ew", padx=24, pady=10)
-        ctk.CTkLabel(panel, text="游戏进程黑名单", text_color=COLORS["text_secondary"]).grid(row=2, column=0, sticky="nw", padx=24, pady=10)
+        ctk.CTkLabel(panel, text="游戏进程黑名单", text_color=COLORS["text_secondary"]).grid(row=1, column=0, sticky="nw", padx=24, pady=10)
         self.blacklist_text = ctk.CTkTextbox(panel, height=180, fg_color=COLORS["bg_secondary"], border_color=COLORS["border"], border_width=1)
-        self.blacklist_text.grid(row=2, column=1, sticky="ew", padx=24, pady=10)
-        ctk.CTkCheckBox(panel, text="启用强制关闭游戏", variable=self.auto_kill_var, fg_color=COLORS["brand"], hover_color=COLORS["brand_hover"]).grid(row=3, column=1, sticky="w", padx=24, pady=10)
-        ctk.CTkCheckBox(panel, text="开机自动启动", variable=self.startup_var, fg_color=COLORS["brand"], hover_color=COLORS["brand_hover"]).grid(row=4, column=1, sticky="w", padx=24, pady=10)
-        ctk.CTkSwitch(panel, text="目标完成提示音", variable=self.sound_var, progress_color=COLORS["brand"]).grid(row=5, column=1, sticky="w", padx=24, pady=10)
-        ctk.CTkButton(panel, text="保存设置", height=BUTTON_HEIGHT, fg_color=COLORS["brand"], hover_color=COLORS["brand_hover"], corner_radius=RADIUS["button"], command=self._save_settings).grid(row=6, column=1, sticky="ew", padx=24, pady=(18, 24))
+        self.blacklist_text.grid(row=1, column=1, sticky="ew", padx=24, pady=10)
+        ctk.CTkCheckBox(panel, text="启用强制关闭游戏", variable=self.auto_kill_var, fg_color=COLORS["brand"], hover_color=COLORS["brand_hover"]).grid(row=2, column=1, sticky="w", padx=24, pady=10)
+        ctk.CTkCheckBox(panel, text="开机自动启动", variable=self.startup_var, fg_color=COLORS["brand"], hover_color=COLORS["brand_hover"]).grid(row=3, column=1, sticky="w", padx=24, pady=10)
+        ctk.CTkSwitch(panel, text="目标完成提示音", variable=self.sound_var, progress_color=COLORS["brand"]).grid(row=4, column=1, sticky="w", padx=24, pady=10)
+        ctk.CTkButton(panel, text="保存设置", height=BUTTON_HEIGHT, fg_color=COLORS["brand"], hover_color=COLORS["brand_hover"], corner_radius=RADIUS["button"], command=self._save_settings).grid(row=5, column=1, sticky="ew", padx=24, pady=(18, 24))
 
     def _build_goals_page(self, page: ctk.CTkScrollableFrame) -> None:
         page.grid_columnconfigure(0, weight=1)
@@ -890,9 +888,17 @@ class FocusDawnApp(ctk.CTk):
         ).grid(row=0, column=1, sticky="e")
         ctk.CTkLabel(goals_panel, text=f"本周从 {get_week_start()} 开始。为每个方向设置清晰的投入计划。", font=(FONT_FAMILY, 13), text_color=COLORS["text_secondary"]).grid(row=1, column=0, sticky="w", padx=24, pady=(0, 18))
 
+        daily_goal_row = ctk.CTkFrame(goals_panel, fg_color=COLORS["card_soft"], corner_radius=16, border_width=1, border_color=COLORS["border"])
+        daily_goal_row.grid(row=2, column=0, sticky="ew", padx=24, pady=(0, 14))
+        daily_goal_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(daily_goal_row, text="每日创作目标", font=(FONT_FAMILY, 16, "bold"), text_color=COLORS["text"]).grid(row=0, column=0, sticky="w", padx=18, pady=(16, 4))
+        ctk.CTkLabel(daily_goal_row, text="用于判断今日是否解锁娱乐，也会影响连续达标统计。", font=(FONT_FAMILY, 12), text_color=COLORS["text_secondary"]).grid(row=1, column=0, columnspan=2, sticky="w", padx=18, pady=(0, 16))
+        ctk.CTkEntry(daily_goal_row, textvariable=self.goal_var, width=120, height=38, fg_color=COLORS["bg_secondary"], border_color=COLORS["border"]).grid(row=0, column=1, rowspan=2, sticky="e", padx=(0, 8), pady=16)
+        ctk.CTkLabel(daily_goal_row, text="分钟 / 天", text_color=COLORS["text_secondary"], font=(FONT_FAMILY, 12)).grid(row=0, column=2, rowspan=2, sticky="e", padx=(0, 18), pady=16)
+
         self.weekly_goal_settings_frame = ctk.CTkFrame(goals_panel, fg_color="transparent")
-        self.weekly_goal_settings_frame.grid(row=2, column=0, sticky="ew", padx=24, pady=(0, 14))
-        ctk.CTkButton(goals_panel, text="保存本周计划", height=BUTTON_HEIGHT, fg_color=COLORS["brand"], hover_color=COLORS["brand_hover"], corner_radius=RADIUS["button"], command=self._save_weekly_goals).grid(row=3, column=0, sticky="ew", padx=24, pady=(0, 22))
+        self.weekly_goal_settings_frame.grid(row=3, column=0, sticky="ew", padx=24, pady=(0, 14))
+        ctk.CTkButton(goals_panel, text="保存目标设置", height=BUTTON_HEIGHT, fg_color=COLORS["brand"], hover_color=COLORS["brand_hover"], corner_radius=RADIUS["button"], command=self._save_goal_settings).grid(row=4, column=0, sticky="ew", padx=24, pady=(0, 22))
 
     def _build_logs_page(self, page: ctk.CTkScrollableFrame) -> None:
         page.grid_columnconfigure(0, weight=1)
@@ -1152,31 +1158,38 @@ class FocusDawnApp(ctk.CTk):
         self._render_weekly_goal_settings()
         self._refresh_now()
 
-    def _save_weekly_goals(self) -> None:
+    def _save_goal_settings(self) -> None:
+        try:
+            goal = max(1, int(self.goal_var.get().strip()))
+        except ValueError:
+            messagebox.showerror("设置错误", "每日创作目标必须是整数。")
+            return
+        set_setting("daily_goal_minutes", str(goal))
+        self.tracker.set_goal_minutes(goal)
+        if not self._save_weekly_goals(show_message=False):
+            return
+        messagebox.showinfo("已保存", "目标设置已经保存。")
+
+    def _save_weekly_goals(self, show_message: bool = True) -> bool:
         for goal_id, option_var in self.weekly_goal_option_vars.items():
             custom_var = self.weekly_goal_custom_vars.get(goal_id, tk.StringVar(value=""))
             try:
                 minutes = _minutes_from_weekly_option(option_var.get(), custom_var.get())
             except ValueError:
                 messagebox.showerror("设置错误", "自定义周目标请输入小时数，例如 0.5 或 2.5。")
-                return
+                return False
             set_weekly_goal(goal_id, minutes)
-        messagebox.showinfo("已保存", "本周目标已经保存。")
+        if show_message:
+            messagebox.showinfo("已保存", "本周目标已经保存。")
         self._render_weekly_goal_settings()
         self._refresh_now()
+        return True
 
     def _save_settings(self) -> None:
-        try:
-            goal = max(1, int(self.goal_var.get().strip()))
-        except ValueError:
-            messagebox.showerror("设置错误", "每日创作目标必须是整数。")
-            return
         blacklist = self.blacklist_text.get("1.0", "end").strip()
-        set_setting("daily_goal_minutes", str(goal))
         set_setting("game_process_blacklist", blacklist)
         set_setting("auto_kill_enabled", "1" if self.auto_kill_var.get() else "0")
         set_setting("startup_enabled", "1" if self.startup_var.get() else "0")
-        self.tracker.set_goal_minutes(goal)
         self.tracker.set_blacklist(blacklist.splitlines())
         self.tracker.set_auto_kill_enabled(self.auto_kill_var.get())
         try:
@@ -1575,10 +1588,7 @@ class FocusDawnApp(ctk.CTk):
 
     def _show_completion_toast(self) -> None:
         if self.sound_var.get():
-            try:
-                self.bell()
-            except Exception:
-                pass
+            self._play_audio_file(AUDIO_DIR / "completion_voice.mp3", "completion")
         toast = ctk.CTkToplevel(self)
         toast.title("FocusDawn")
         toast.geometry("360x120")
@@ -1589,9 +1599,11 @@ class FocusDawnApp(ctk.CTk):
         toast.after(2600, toast.destroy)
 
     def _play_startup_sound(self) -> None:
+        self._play_audio_file(AUDIO_DIR / "startup_voice.mp3", "startup")
+
+    def _play_audio_file(self, sound_path: Path, name: str) -> None:
         if sys.platform != "win32":
             return
-        sound_path = AUDIO_DIR / "startup_voice.mp3"
         if not sound_path.exists():
             return
 
@@ -1619,7 +1631,7 @@ class FocusDawnApp(ctk.CTk):
                 pass
 
         def worker() -> None:
-            alias = f"focusdawn_startup_{int(time.time() * 1000)}"
+            alias = f"focusdawn_{name}_{int(time.time() * 1000)}"
             winmm = ctypes.windll.winmm
 
             def mci(command: str, buffer=None, length: int = 0) -> int:
@@ -1645,7 +1657,7 @@ class FocusDawnApp(ctk.CTk):
                 except Exception:
                     pass
 
-        threading.Thread(target=worker, name="FocusDawn-startup-sound", daemon=True).start()
+        threading.Thread(target=worker, name=f"FocusDawn-{name}-sound", daemon=True).start()
 
     def _handle_game_detected(self, process_names: list[str], remaining_seconds: int) -> None:
         self.after(0, lambda: self._show_game_dialog(process_names, remaining_seconds))

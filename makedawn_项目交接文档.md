@@ -64,6 +64,7 @@ customtkinter>=5.2.2
 - 数据分析页支持创作热力图和本周创作报告
 - 数据分析页支持最近 8 周历史周报
 - 软件启动时播放启动语音
+- 今日目标完成时播放目标完成提示音
 - 游戏/游戏平台进程黑名单
 - 未达标时检测黑名单进程并弹窗提醒
 - 提醒弹窗显示 60 秒自动关闭倒计时
@@ -265,6 +266,7 @@ PROCESS_SCAN_INTERVAL_SECONDS = 5
 - 标题栏、托盘、exe 使用 `assets\ui\app_icon.ico`
 - 图标源图：`assets\ui\app_icon.png`
 - 启动音频：`assets\audio\startup_voice.mp3`
+- 目标完成提示音：`assets\audio\completion_voice.mp3`
 - 首页“今日创作进度”已改为 Canvas 绘制，背景图、暗色遮罩、圆环、进度条和文字在同一层，避免控件叠背景图产生黑框
 - 首页新增“本周目标进度”
 - 开始创作按钮会先打开“选择创作目标”面板
@@ -274,6 +276,9 @@ PROCESS_SCAN_INTERVAL_SECONDS = 5
 - 数据分析页热力图按最近 35 天创作时长分级着色
 - 数据分析页新增“本周创作报告”
 - 启动后异步播放 `assets\audio\startup_voice.mp3`，优先使用 Windows `winmm`，失败后 fallback 到隐藏 PowerShell `.NET MediaPlayer`，不额外引入 Python 依赖
+- 目标完成后异步播放 `assets\audio\completion_voice.mp3`，复用同一套播放 fallback
+- 每日创作目标入口已从设置页移到一级「目标」模块
+- 首页“查看更多记录”跳转到数据分析页
 - 右侧“当前状态”仍是普通 CTk 控件结构
 
 ## 9. 启动与打包

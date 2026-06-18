@@ -13,6 +13,7 @@ Windows 本地创作守护工具，目标是帮助用户形成“先创作，后
 - 已支持体验升级第二阶段：连续创作当前/最高纪录、今日最长专注、最近 35 天热力图、本周创作报告。
 - 已支持历史周报：数据分析页展示最近 8 周创作、达标天数、娱乐、完成率、较上周变化。
 - 已支持启动语音：启动后播放 assets\audio\startup_voice.mp3。
+- 已支持目标完成提示音：今日目标完成后播放 assets\audio\completion_voice.mp3。
 - 已支持游戏/游戏平台进程检测。
 - 默认开启强制关闭。
 - 未达标时检测到黑名单进程会先提醒，弹窗显示 60 秒倒计时，仍未关闭则自动关闭。
@@ -60,6 +61,7 @@ Windows 本地创作守护工具，目标是帮助用户形成“先创作，后
 - assets\ui\app_icon.ico
 - assets\ui\bg_landscape.png
 - assets\audio\startup_voice.mp3
+- assets\audio\completion_voice.mp3
 
 注意事项：
 - 进程检测和关闭依赖 psutil，打包时需要确认 psutil 被 PyInstaller 打进去。
