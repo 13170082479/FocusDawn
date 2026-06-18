@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import ctypes
 import sys
 import time
 import threading
@@ -45,6 +46,7 @@ from tracker import AppTracker
 
 BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 ASSET_DIR = BASE_DIR / "assets" / "ui"
+AUDIO_DIR = BASE_DIR / "assets" / "audio"
 WEEKLY_TARGET_OPTIONS = ["30 分钟", "1 小时", "3 小时", "5 小时", "10 小时", "自定义"]
 WEEKLY_TARGET_MINUTES = {
     "30 分钟": 30,
@@ -449,6 +451,7 @@ class FocusDawnApp(ctk.CTk):
         self.tracker.start()
         self._start_tray()
         self._refresh_now()
+        self._play_startup_sound()
         self._schedule_fast_refresh()
         self._schedule_slow_refresh()
 
@@ -1583,6 +1586,41 @@ class FocusDawnApp(ctk.CTk):
         ctk.CTkLabel(toast, text="今日目标完成", font=(FONT_FAMILY, 18, "bold"), text_color=COLORS["success"]).pack(anchor="w", padx=20, pady=(18, 4))
         ctk.CTkLabel(toast, text="已解锁娱乐时间", font=(FONT_FAMILY, 14), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=20)
         toast.after(2600, toast.destroy)
+
+    def _play_startup_sound(self) -> None:
+        if sys.platform != "win32":
+            return
+        sound_path = AUDIO_DIR / "startup_voice.mp3"
+        if not sound_path.exists():
+            return
+
+        def worker() -> None:
+            alias = f"focusdawn_startup_{int(time.time() * 1000)}"
+            winmm = ctypes.windll.winmm
+
+            def mci(command: str, buffer=None, length: int = 0) -> int:
+                return int(winmm.mciSendStringW(command, buffer, length, None))
+
+            try:
+                mci(f'close {alias}')
+                if mci(f'open "{sound_path}" type mpegvideo alias {alias}') != 0:
+                    return
+                mci(f'play {alias}')
+                buffer = ctypes.create_unicode_buffer(64)
+                length_ms = 8000
+                if mci(f'status {alias} length', buffer, 64) == 0:
+                    try:
+                        length_ms = max(1000, int(buffer.value))
+                    except ValueError:
+                        length_ms = 8000
+                time.sleep(min(30, length_ms / 1000 + 1))
+            finally:
+                try:
+                    mci(f'close {alias}')
+                except Exception:
+                    pass
+
+        threading.Thread(target=worker, name="FocusDawn-startup-sound", daemon=True).start()
 
     def _handle_game_detected(self, process_names: list[str], remaining_seconds: int) -> None:
         self.after(0, lambda: self._show_game_dialog(process_names, remaining_seconds))

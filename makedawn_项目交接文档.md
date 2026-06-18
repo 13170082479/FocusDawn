@@ -63,6 +63,7 @@ customtkinter>=5.2.2
 - 首页支持今日最长专注时段
 - 数据分析页支持创作热力图和本周创作报告
 - 数据分析页支持最近 8 周历史周报
+- 软件启动时播放启动语音
 - 游戏/游戏平台进程黑名单
 - 未达标时检测黑名单进程并弹窗提醒
 - 提醒弹窗显示 60 秒自动关闭倒计时
@@ -263,6 +264,7 @@ PROCESS_SCAN_INTERVAL_SECONDS = 5
 - 左上角品牌：`FocusDawn ✦`
 - 标题栏、托盘、exe 使用 `assets\ui\app_icon.ico`
 - 图标源图：`assets\ui\app_icon.png`
+- 启动音频：`assets\audio\startup_voice.mp3`
 - 首页“今日创作进度”已改为 Canvas 绘制，背景图、暗色遮罩、圆环、进度条和文字在同一层，避免控件叠背景图产生黑框
 - 首页新增“本周目标进度”
 - 开始创作按钮会先打开“选择创作目标”面板
@@ -271,6 +273,7 @@ PROCESS_SCAN_INTERVAL_SECONDS = 5
 - 首页新增“连续创作”和“最长专注”反馈
 - 数据分析页热力图按最近 35 天创作时长分级着色
 - 数据分析页新增“本周创作报告”
+- 启动后异步播放 `assets\audio\startup_voice.mp3`，使用 Windows `winmm`，不额外引入依赖
 - 右侧“当前状态”仍是普通 CTk 控件结构
 
 ## 9. 启动与打包
