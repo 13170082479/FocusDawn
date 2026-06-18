@@ -273,7 +273,7 @@ PROCESS_SCAN_INTERVAL_SECONDS = 5
 - 首页新增“连续创作”和“最长专注”反馈
 - 数据分析页热力图按最近 35 天创作时长分级着色
 - 数据分析页新增“本周创作报告”
-- 启动后异步播放 `assets\audio\startup_voice.mp3`，使用 Windows `winmm`，不额外引入依赖
+- 启动后异步播放 `assets\audio\startup_voice.mp3`，优先使用 Windows `winmm`，失败后 fallback 到隐藏 PowerShell `.NET MediaPlayer`，不额外引入 Python 依赖
 - 右侧“当前状态”仍是普通 CTk 控件结构
 
 ## 9. 启动与打包

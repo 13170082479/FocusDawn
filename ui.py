@@ -5,6 +5,7 @@ import ctypes
 import sys
 import time
 import threading
+import subprocess
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
@@ -1594,6 +1595,29 @@ class FocusDawnApp(ctk.CTk):
         if not sound_path.exists():
             return
 
+        def play_with_powershell() -> None:
+            try:
+                uri = sound_path.resolve().as_uri().replace("'", "''")
+                script = (
+                    "Add-Type -AssemblyName PresentationCore; "
+                    "$player = New-Object System.Windows.Media.MediaPlayer; "
+                    f"$player.Open([Uri]'{uri}'); "
+                    "$player.Volume = 1; "
+                    "$player.Play(); "
+                    "Start-Sleep -Seconds 10; "
+                    "$player.Stop(); "
+                    "$player.Close()"
+                )
+                flags = subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0
+                subprocess.Popen(
+                    ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", script],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    creationflags=flags,
+                )
+            except Exception:
+                pass
+
         def worker() -> None:
             alias = f"focusdawn_startup_{int(time.time() * 1000)}"
             winmm = ctypes.windll.winmm
@@ -1604,6 +1628,7 @@ class FocusDawnApp(ctk.CTk):
             try:
                 mci(f'close {alias}')
                 if mci(f'open "{sound_path}" type mpegvideo alias {alias}') != 0:
+                    play_with_powershell()
                     return
                 mci(f'play {alias}')
                 buffer = ctypes.create_unicode_buffer(64)
