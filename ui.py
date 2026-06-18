@@ -15,6 +15,11 @@ import customtkinter as ctk
 from PIL import Image, ImageDraw, ImageTk
 import pystray
 
+try:
+    import psutil
+except Exception:  # pragma: no cover
+    psutil = None
+
 from analyzer import build_analysis, seconds_to_minutes
 from config import AUTO_KILL_GRACE_SECONDS, DEFAULT_DAILY_GOAL_MINUTES
 from design_tokens import BUTTON_HEIGHT, COLORS, FONT_FAMILY, RADIUS, SPACE
@@ -64,6 +69,32 @@ GOAL_COLOR_OPTIONS = {
     "日出橙": "#F97316",
     "麦穗黄": "#EAB308",
     "珊瑚红": "#EF4444",
+}
+PROCESS_RECOMMEND_KEYWORDS = (
+    "steam",
+    "wegame",
+    "tgp",
+    "game",
+    "shipping",
+    "launcher",
+    "epic",
+    "battle",
+    "mihoyo",
+    "hoyoplay",
+)
+PROTECTED_PROCESS_NAMES = {
+    "system",
+    "registry",
+    "smss.exe",
+    "csrss.exe",
+    "wininit.exe",
+    "winlogon.exe",
+    "services.exe",
+    "lsass.exe",
+    "svchost.exe",
+    "explorer.exe",
+    "dwm.exe",
+    "fontdrvhost.exe",
 }
 
 
@@ -442,6 +473,9 @@ class FocusDawnApp(ctk.CTk):
         self.new_goal_color_var = tk.StringVar(value="晨蓝")
         self.new_goal_target_var = tk.StringVar(value="1 小时")
         self.new_goal_custom_hours_var = tk.StringVar()
+        self.blacklist_items: list[str] = []
+        self.scanned_processes: list[dict[str, object]] = []
+        self.manual_process_var = tk.StringVar()
         self._started_at = time.monotonic()
         self.current_page = "today"
         self.nav_buttons: dict[str, ctk.CTkButton] = {}
@@ -857,15 +891,35 @@ class FocusDawnApp(ctk.CTk):
         page.grid_columnconfigure(0, weight=1)
         panel = self._card(page)
         panel.grid(row=0, column=0, sticky="ew", pady=(0, SPACE["card"]))
-        panel.grid_columnconfigure(1, weight=1)
+        panel.grid_columnconfigure((0, 1), weight=1)
         ctk.CTkLabel(panel, text="设置", font=(FONT_FAMILY, 24, "bold"), text_color=COLORS["text"]).grid(row=0, column=0, columnspan=2, sticky="w", padx=24, pady=(24, 18))
-        ctk.CTkLabel(panel, text="游戏进程黑名单", text_color=COLORS["text_secondary"]).grid(row=1, column=0, sticky="nw", padx=24, pady=10)
-        self.blacklist_text = ctk.CTkTextbox(panel, height=180, fg_color=COLORS["bg_secondary"], border_color=COLORS["border"], border_width=1)
-        self.blacklist_text.grid(row=1, column=1, sticky="ew", padx=24, pady=10)
-        ctk.CTkCheckBox(panel, text="启用强制关闭游戏", variable=self.auto_kill_var, fg_color=COLORS["brand"], hover_color=COLORS["brand_hover"]).grid(row=2, column=1, sticky="w", padx=24, pady=10)
-        ctk.CTkCheckBox(panel, text="开机自动启动", variable=self.startup_var, fg_color=COLORS["brand"], hover_color=COLORS["brand_hover"]).grid(row=3, column=1, sticky="w", padx=24, pady=10)
-        ctk.CTkSwitch(panel, text="目标完成提示音", variable=self.sound_var, progress_color=COLORS["brand"]).grid(row=4, column=1, sticky="w", padx=24, pady=10)
-        ctk.CTkButton(panel, text="保存设置", height=BUTTON_HEIGHT, fg_color=COLORS["brand"], hover_color=COLORS["brand_hover"], corner_radius=RADIUS["button"], command=self._save_settings).grid(row=5, column=1, sticky="ew", padx=24, pady=(18, 24))
+
+        blacklist_card = ctk.CTkFrame(panel, fg_color=COLORS["card_soft"], corner_radius=16, border_width=1, border_color=COLORS["border"])
+        blacklist_card.grid(row=1, column=0, sticky="nsew", padx=(24, 12), pady=(0, 16))
+        ctk.CTkLabel(blacklist_card, text="黑名单进程", font=(FONT_FAMILY, 17, "bold"), text_color=COLORS["text"]).pack(anchor="w", padx=18, pady=(16, 4))
+        ctk.CTkLabel(blacklist_card, text="这些进程会在未完成创作目标时触发提醒/关闭。", font=(FONT_FAMILY, 12), text_color=COLORS["text_secondary"]).pack(anchor="w", padx=18, pady=(0, 12))
+        self.blacklist_list_frame = ctk.CTkFrame(blacklist_card, fg_color="transparent")
+        self.blacklist_list_frame.pack(fill="x", padx=14, pady=(0, 14))
+
+        scan_card = ctk.CTkFrame(panel, fg_color=COLORS["card_soft"], corner_radius=16, border_width=1, border_color=COLORS["border"])
+        scan_card.grid(row=1, column=1, sticky="nsew", padx=(12, 24), pady=(0, 16))
+        scan_header = ctk.CTkFrame(scan_card, fg_color="transparent")
+        scan_header.pack(fill="x", padx=18, pady=(16, 8))
+        scan_header.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(scan_header, text="扫描当前进程", font=(FONT_FAMILY, 17, "bold"), text_color=COLORS["text"]).grid(row=0, column=0, sticky="w")
+        ctk.CTkButton(scan_header, text="扫描", width=82, height=32, fg_color=COLORS["brand"], hover_color=COLORS["brand_hover"], command=self._scan_running_processes).grid(row=0, column=1, sticky="e")
+        manual_row = ctk.CTkFrame(scan_card, fg_color="transparent")
+        manual_row.pack(fill="x", padx=18, pady=(0, 10))
+        manual_row.grid_columnconfigure(0, weight=1)
+        ctk.CTkEntry(manual_row, textvariable=self.manual_process_var, placeholder_text="手动添加，例如 game.exe", height=36, fg_color=COLORS["bg_secondary"], border_color=COLORS["border"]).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        ctk.CTkButton(manual_row, text="添加", width=76, height=36, fg_color="transparent", border_width=1, border_color=COLORS["border"], command=self._add_manual_process).grid(row=0, column=1)
+        self.process_scan_frame = ctk.CTkScrollableFrame(scan_card, fg_color="transparent", height=240)
+        self.process_scan_frame.pack(fill="both", expand=True, padx=14, pady=(0, 14))
+
+        ctk.CTkCheckBox(panel, text="启用强制关闭游戏", variable=self.auto_kill_var, fg_color=COLORS["brand"], hover_color=COLORS["brand_hover"]).grid(row=2, column=0, columnspan=2, sticky="w", padx=24, pady=8)
+        ctk.CTkCheckBox(panel, text="开机自动启动", variable=self.startup_var, fg_color=COLORS["brand"], hover_color=COLORS["brand_hover"]).grid(row=3, column=0, columnspan=2, sticky="w", padx=24, pady=8)
+        ctk.CTkSwitch(panel, text="目标完成提示音", variable=self.sound_var, progress_color=COLORS["brand"]).grid(row=4, column=0, columnspan=2, sticky="w", padx=24, pady=8)
+        ctk.CTkButton(panel, text="保存设置", height=BUTTON_HEIGHT, fg_color=COLORS["brand"], hover_color=COLORS["brand_hover"], corner_radius=RADIUS["button"], command=self._save_settings).grid(row=5, column=0, columnspan=2, sticky="ew", padx=24, pady=(18, 24))
 
     def _build_goals_page(self, page: ctk.CTkScrollableFrame) -> None:
         page.grid_columnconfigure(0, weight=1)
@@ -919,11 +973,151 @@ class FocusDawnApp(ctk.CTk):
         blacklist = get_setting("game_process_blacklist", "") or ""
         auto_kill = get_setting("auto_kill_enabled", "0") or "0"
         self.goal_var.set(goal)
-        self.blacklist_text.delete("1.0", "end")
-        self.blacklist_text.insert("1.0", blacklist.replace(",", "\n"))
+        self.blacklist_items = self._parse_process_lines(blacklist)
+        self._render_blacklist_items()
+        self._render_process_scan_results()
         self.auto_kill_var.set(str(auto_kill).strip().lower() in {"1", "true", "yes", "on"})
         self.startup_var.set(is_startup_enabled())
         self._render_weekly_goal_settings()
+
+    def _parse_process_lines(self, raw: str) -> list[str]:
+        seen = set()
+        items = []
+        for line in raw.replace(",", "\n").splitlines():
+            name = line.strip().lower()
+            if not name:
+                continue
+            if not name.endswith(".exe"):
+                name = f"{name}.exe"
+            if name not in seen:
+                seen.add(name)
+                items.append(name)
+        return items
+
+    def _process_category(self, name: str) -> str:
+        lower = name.lower()
+        if any(token in lower for token in ("steam", "wegame", "epic", "tgp", "hoyoplay", "battle.net")):
+            return "游戏平台"
+        if any(token in lower for token in ("launcher", "daemon", "helper", "service")):
+            return "辅助进程"
+        return "游戏进程" if self._is_recommended_process(lower) else "自定义"
+
+    def _is_recommended_process(self, name: str) -> bool:
+        lower = name.lower()
+        return any(keyword in lower for keyword in PROCESS_RECOMMEND_KEYWORDS)
+
+    def _is_protected_process(self, name: str) -> bool:
+        lower = name.lower()
+        return lower in PROTECTED_PROCESS_NAMES or lower.startswith("python") or lower.startswith("focusdawn")
+
+    def _render_blacklist_items(self) -> None:
+        for child in self.blacklist_list_frame.winfo_children():
+            child.destroy()
+        if not self.blacklist_items:
+            ctk.CTkLabel(self.blacklist_list_frame, text="暂无黑名单进程。", text_color=COLORS["text_muted"]).pack(anchor="w", padx=4, pady=8)
+            return
+        for name in self.blacklist_items:
+            row = ctk.CTkFrame(self.blacklist_list_frame, fg_color=COLORS["bg_secondary"], corner_radius=10)
+            row.pack(fill="x", pady=5)
+            row.grid_columnconfigure(1, weight=1)
+            ctk.CTkLabel(row, text="●", text_color=COLORS["warning"], font=(FONT_FAMILY, 14, "bold")).grid(row=0, column=0, padx=(12, 8), pady=10)
+            ctk.CTkLabel(row, text=name, text_color=COLORS["text"], font=(FONT_FAMILY, 13, "bold")).grid(row=0, column=1, sticky="w")
+            ctk.CTkLabel(row, text=self._process_category(name), text_color=COLORS["text_muted"], font=(FONT_FAMILY, 11)).grid(row=0, column=2, sticky="e", padx=(8, 8))
+            ctk.CTkButton(
+                row,
+                text="删除",
+                width=58,
+                height=28,
+                fg_color="transparent",
+                border_width=1,
+                border_color=COLORS["border"],
+                text_color=COLORS["text_soft"],
+                hover_color=COLORS["card"],
+                command=lambda item=name: self._remove_blacklist_item(item),
+            ).grid(row=0, column=3, padx=(0, 10), pady=8)
+
+    def _render_process_scan_results(self) -> None:
+        for child in self.process_scan_frame.winfo_children():
+            child.destroy()
+        if not self.scanned_processes:
+            ctk.CTkLabel(self.process_scan_frame, text="点击“扫描”列出当前运行的进程。推荐项会排在前面。", text_color=COLORS["text_muted"], font=(FONT_FAMILY, 12), wraplength=420).pack(anchor="w", padx=4, pady=8)
+            return
+        blacklist = set(self.blacklist_items)
+        for proc in self.scanned_processes[:80]:
+            name = str(proc["name"])
+            protected = bool(proc.get("protected"))
+            exists = name in blacklist
+            recommended = bool(proc.get("recommended"))
+            row = ctk.CTkFrame(self.process_scan_frame, fg_color=COLORS["bg_secondary"], corner_radius=10)
+            row.pack(fill="x", pady=5)
+            row.grid_columnconfigure(1, weight=1)
+            color = COLORS["brand"] if recommended else COLORS["text_muted"]
+            ctk.CTkLabel(row, text="●", text_color=color, font=(FONT_FAMILY, 14, "bold")).grid(row=0, column=0, padx=(12, 8), pady=10)
+            ctk.CTkLabel(row, text=name, text_color=COLORS["text"], font=(FONT_FAMILY, 13, "bold")).grid(row=0, column=1, sticky="w")
+            tag = "推荐" if recommended else "普通"
+            if protected:
+                tag = "受保护"
+            ctk.CTkLabel(row, text=tag, text_color=COLORS["text_muted"], font=(FONT_FAMILY, 11)).grid(row=0, column=2, sticky="e", padx=(8, 8))
+            ctk.CTkButton(
+                row,
+                text="已加入" if exists else "加入",
+                width=66,
+                height=28,
+                state="disabled" if exists or protected else "normal",
+                fg_color=COLORS["border"] if exists else COLORS["brand"],
+                hover_color=COLORS["brand_hover"],
+                command=lambda item=name: self._add_blacklist_item(item),
+            ).grid(row=0, column=3, padx=(0, 10), pady=8)
+
+    def _scan_running_processes(self) -> None:
+        if psutil is None:
+            messagebox.showwarning("无法扫描", "psutil 不可用，无法扫描当前进程。")
+            return
+        found = {}
+        for proc in psutil.process_iter(["name"]):
+            try:
+                name = (proc.info.get("name") or "").strip().lower()
+            except Exception:
+                continue
+            if not name or not name.endswith(".exe"):
+                continue
+            if name not in found:
+                found[name] = {
+                    "name": name,
+                    "recommended": self._is_recommended_process(name),
+                    "protected": self._is_protected_process(name),
+                }
+        self.scanned_processes = sorted(
+            found.values(),
+            key=lambda item: (not bool(item["recommended"]), bool(item["protected"]), str(item["name"])),
+        )
+        self._render_process_scan_results()
+
+    def _add_blacklist_item(self, name: str) -> None:
+        clean = self._parse_process_lines(name)
+        if not clean:
+            return
+        item = clean[0]
+        if self._is_protected_process(item):
+            messagebox.showwarning("不能添加", f"{item} 是受保护进程，不建议加入黑名单。")
+            return
+        if item not in self.blacklist_items:
+            self.blacklist_items.append(item)
+            self.blacklist_items.sort()
+        self._render_blacklist_items()
+        self._render_process_scan_results()
+
+    def _add_manual_process(self) -> None:
+        raw = self.manual_process_var.get().strip()
+        if not raw:
+            return
+        self._add_blacklist_item(raw)
+        self.manual_process_var.set("")
+
+    def _remove_blacklist_item(self, name: str) -> None:
+        self.blacklist_items = [item for item in self.blacklist_items if item != name]
+        self._render_blacklist_items()
+        self._render_process_scan_results()
 
     def _render_weekly_goal_settings(self) -> None:
         for child in self.weekly_goal_settings_frame.winfo_children():
@@ -1186,11 +1380,11 @@ class FocusDawnApp(ctk.CTk):
         return True
 
     def _save_settings(self) -> None:
-        blacklist = self.blacklist_text.get("1.0", "end").strip()
+        blacklist = "\n".join(self.blacklist_items)
         set_setting("game_process_blacklist", blacklist)
         set_setting("auto_kill_enabled", "1" if self.auto_kill_var.get() else "0")
         set_setting("startup_enabled", "1" if self.startup_var.get() else "0")
-        self.tracker.set_blacklist(blacklist.splitlines())
+        self.tracker.set_blacklist(self.blacklist_items)
         self.tracker.set_auto_kill_enabled(self.auto_kill_var.get())
         try:
             enable_startup() if self.startup_var.get() else disable_startup()
