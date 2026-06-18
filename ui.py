@@ -6,6 +6,7 @@ import sys
 import time
 import threading
 import subprocess
+import re
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
@@ -54,6 +55,7 @@ BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 ASSET_DIR = BASE_DIR / "assets" / "ui"
 AUDIO_DIR = BASE_DIR / "assets" / "audio"
 WEEKLY_TARGET_OPTIONS = ["30 分钟", "1 小时", "3 小时", "5 小时", "10 小时", "自定义"]
+WEEKLY_GOAL_SORT_OPTIONS = ["默认排序", "周目标高优先", "已完成高优先", "完成率高优先", "剩余时间少优先"]
 WEEKLY_TARGET_MINUTES = {
     "30 分钟": 30,
     "1 小时": 60,
@@ -151,7 +153,14 @@ def _minutes_from_weekly_option(option: str, custom_hours: str) -> int:
     raw = custom_hours.strip()
     if not raw:
         return 0
-    return max(0, int(float(raw) * 60))
+    normalized = raw.lower().replace(" ", "")
+    number_match = re.search(r"\d+(?:\.\d+)?", normalized)
+    if not number_match:
+        raise ValueError("invalid weekly target")
+    value = float(number_match.group(0))
+    if any(unit in normalized for unit in ("分钟", "分", "minute", "min", "m")) and not any(unit in normalized for unit in ("小时", "hour", "h")):
+        return max(0, int(value))
+    return max(0, int(value * 60))
 
 
 def _color_label_from_hex(color: str) -> str:
@@ -468,6 +477,7 @@ class FocusDawnApp(ctk.CTk):
         self.weekly_goal_entries: dict[str, tk.StringVar] = {}
         self.weekly_goal_option_vars: dict[str, tk.StringVar] = {}
         self.weekly_goal_custom_vars: dict[str, tk.StringVar] = {}
+        self.weekly_goal_sort_var = tk.StringVar(value=WEEKLY_GOAL_SORT_OPTIONS[0])
         self.new_goal_name_var = tk.StringVar()
         self.new_goal_icon_var = tk.StringVar(value="PenLine")
         self.new_goal_color_var = tk.StringVar(value="晨蓝")
@@ -950,9 +960,26 @@ class FocusDawnApp(ctk.CTk):
         ctk.CTkEntry(daily_goal_row, textvariable=self.goal_var, width=120, height=38, fg_color=COLORS["bg_secondary"], border_color=COLORS["border"]).grid(row=0, column=1, rowspan=2, sticky="e", padx=(0, 8), pady=16)
         ctk.CTkLabel(daily_goal_row, text="分钟 / 天", text_color=COLORS["text_secondary"], font=(FONT_FAMILY, 12)).grid(row=0, column=2, rowspan=2, sticky="e", padx=(0, 18), pady=16)
 
+        list_toolbar = ctk.CTkFrame(goals_panel, fg_color="transparent")
+        list_toolbar.grid(row=3, column=0, sticky="ew", padx=24, pady=(0, 12))
+        list_toolbar.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(list_toolbar, text="本周计划列表", font=(FONT_FAMILY, 16, "bold"), text_color=COLORS["text"]).grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(list_toolbar, text="排序", text_color=COLORS["text_secondary"], font=(FONT_FAMILY, 12)).grid(row=0, column=1, sticky="e", padx=(0, 8))
+        ctk.CTkOptionMenu(
+            list_toolbar,
+            values=WEEKLY_GOAL_SORT_OPTIONS,
+            variable=self.weekly_goal_sort_var,
+            width=150,
+            height=34,
+            fg_color=COLORS["bg_secondary"],
+            button_color=COLORS["border"],
+            button_hover_color=COLORS["brand"],
+            command=lambda _choice: self._render_weekly_goal_settings(),
+        ).grid(row=0, column=2, sticky="e")
+
         self.weekly_goal_settings_frame = ctk.CTkFrame(goals_panel, fg_color="transparent")
-        self.weekly_goal_settings_frame.grid(row=3, column=0, sticky="ew", padx=24, pady=(0, 14))
-        ctk.CTkButton(goals_panel, text="保存目标设置", height=BUTTON_HEIGHT, fg_color=COLORS["brand"], hover_color=COLORS["brand_hover"], corner_radius=RADIUS["button"], command=self._save_goal_settings).grid(row=4, column=0, sticky="ew", padx=24, pady=(0, 22))
+        self.weekly_goal_settings_frame.grid(row=4, column=0, sticky="ew", padx=24, pady=(0, 14))
+        ctk.CTkButton(goals_panel, text="保存全部目标设置", height=BUTTON_HEIGHT, fg_color=COLORS["brand"], hover_color=COLORS["brand_hover"], corner_radius=RADIUS["button"], command=self._save_goal_settings).grid(row=5, column=0, sticky="ew", padx=24, pady=(0, 22))
 
     def _build_logs_page(self, page: ctk.CTkScrollableFrame) -> None:
         page.grid_columnconfigure(0, weight=1)
@@ -1119,6 +1146,30 @@ class FocusDawnApp(ctk.CTk):
         self._render_blacklist_items()
         self._render_process_scan_results()
 
+    def _sort_weekly_goal_rows(
+        self,
+        rows: list[dict[str, object]],
+        progress_by_goal: dict[str, dict[str, object]],
+    ) -> list[dict[str, object]]:
+        def stats(row: dict[str, object]) -> tuple[int, int, float, int]:
+            goal_id = str(row["goal_id"])
+            target = int(row.get("target_minutes") or 0)
+            completed = int(progress_by_goal.get(goal_id, {}).get("completed_minutes") or 0)
+            progress = completed / target if target > 0 else 0
+            remaining = max(0, target - completed) if target > 0 else 10**9
+            return target, completed, progress, remaining
+
+        sort_mode = self.weekly_goal_sort_var.get()
+        if sort_mode == "周目标高优先":
+            return sorted(rows, key=lambda row: (-stats(row)[0], str(row.get("goal_name") or "")))
+        if sort_mode == "已完成高优先":
+            return sorted(rows, key=lambda row: (-stats(row)[1], str(row.get("goal_name") or "")))
+        if sort_mode == "完成率高优先":
+            return sorted(rows, key=lambda row: (-stats(row)[2], -stats(row)[1], str(row.get("goal_name") or "")))
+        if sort_mode == "剩余时间少优先":
+            return sorted(rows, key=lambda row: (stats(row)[3], str(row.get("goal_name") or "")))
+        return rows
+
     def _render_weekly_goal_settings(self) -> None:
         for child in self.weekly_goal_settings_frame.winfo_children():
             child.destroy()
@@ -1130,6 +1181,7 @@ class FocusDawnApp(ctk.CTk):
             ctk.CTkLabel(self.weekly_goal_settings_frame, text="暂无目标。", text_color=COLORS["text_muted"]).pack(anchor="w")
             return
         progress_by_goal = {str(item["goal_id"]): item for item in get_weekly_goal_progress()}
+        rows = self._sort_weekly_goal_rows(rows, progress_by_goal)
         for idx, row in enumerate(rows):
             goal_id = str(row["goal_id"])
             target_minutes = int(row.get("target_minutes") or 0)
@@ -1201,7 +1253,7 @@ class FocusDawnApp(ctk.CTk):
             ctk.CTkButton(
                 actions,
                 text="编辑",
-                width=72,
+                width=66,
                 height=30,
                 fg_color="transparent",
                 border_width=1,
@@ -1212,8 +1264,17 @@ class FocusDawnApp(ctk.CTk):
             ).grid(row=0, column=0, padx=(0, 8))
             ctk.CTkButton(
                 actions,
+                text="保存",
+                width=66,
+                height=30,
+                fg_color=COLORS["brand"],
+                hover_color=COLORS["brand_hover"],
+                command=lambda gid=goal_id: self._save_single_weekly_goal(gid),
+            ).grid(row=0, column=1, padx=(0, 8))
+            ctk.CTkButton(
+                actions,
                 text="归档",
-                width=72,
+                width=66,
                 height=30,
                 fg_color="transparent",
                 border_width=1,
@@ -1221,7 +1282,7 @@ class FocusDawnApp(ctk.CTk):
                 text_color=COLORS["danger"],
                 hover_color=COLORS["bg_secondary"],
                 command=lambda item=dict(row): self._archive_goal_from_card(item),
-            ).grid(row=0, column=1)
+            ).grid(row=0, column=2)
 
             bar = ctk.CTkProgressBar(card, height=10, fg_color=COLORS["bg_secondary"], progress_color=color)
             bar.grid(row=3, column=1, columnspan=2, sticky="ew", padx=(0, 18), pady=(0, 18))
@@ -1378,6 +1439,21 @@ class FocusDawnApp(ctk.CTk):
         self._render_weekly_goal_settings()
         self._refresh_now()
         return True
+
+    def _save_single_weekly_goal(self, goal_id: str) -> None:
+        option_var = self.weekly_goal_option_vars.get(goal_id)
+        custom_var = self.weekly_goal_custom_vars.get(goal_id)
+        if option_var is None or custom_var is None:
+            return
+        try:
+            minutes = _minutes_from_weekly_option(option_var.get(), custom_var.get())
+        except ValueError:
+            messagebox.showerror("设置错误", "自定义周目标请输入小时数或分钟数，例如 0.5、2.5 或 30分钟。")
+            return
+        set_weekly_goal(goal_id, minutes)
+        messagebox.showinfo("已保存", "这项目标的本周计划已经保存。")
+        self._render_weekly_goal_settings()
+        self._refresh_now()
 
     def _save_settings(self) -> None:
         blacklist = "\n".join(self.blacklist_items)
