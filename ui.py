@@ -5,6 +5,7 @@ import sys
 import time
 import threading
 import tkinter as tk
+from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox
 
@@ -18,6 +19,7 @@ from design_tokens import BUTTON_HEIGHT, COLORS, FONT_FAMILY, RADIUS, SPACE
 from storage import (
     archive_goal,
     create_goal,
+    get_best_creative_session,
     get_creative_sessions,
     get_game_events,
     get_goal_time_stats,
@@ -26,7 +28,9 @@ from storage import (
     get_recent_summaries,
     get_recent_goals,
     get_setting,
+    get_streak_stats,
     get_week_start,
+    get_weekly_review,
     get_weekly_goal_progress,
     get_weekly_goals,
     init_db,
@@ -87,6 +91,16 @@ def _fmt_goal_minutes(minutes: int) -> str:
         remainder = minutes % 60
         return f"{hours}h {remainder}m" if remainder else f"{hours}h"
     return f"{minutes}m"
+
+
+def _weekday_text(day: str | None) -> str:
+    if not day:
+        return "--"
+    names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+    try:
+        return names[datetime.fromisoformat(day).weekday()]
+    except ValueError:
+        return day
 
 
 def _weekly_option_from_minutes(minutes: int) -> str:
@@ -397,6 +411,9 @@ class FocusDawnApp(ctk.CTk):
         self.hero_remaining_var = tk.StringVar(value="还需 60 分钟即可解锁娱乐")
         self.hero_status_var = tk.StringVar(value="娱乐锁定")
         self.hero_streak_var = tk.StringVar(value="0 天")
+        self.hero_best_streak_var = tk.StringVar(value="最高 0 天")
+        self.best_focus_var = tk.StringVar(value="暂无记录")
+        self.week_best_var = tk.StringVar(value="暂无记录")
         self.hero_week_rate_var = tk.StringVar(value="0%")
         self.hero_game_var = tk.StringVar(value="0 分钟")
         self.today_status = tk.StringVar(value="先完成创作目标，再开始娱乐。")
@@ -635,10 +652,11 @@ class FocusDawnApp(ctk.CTk):
 
         metrics = ctk.CTkFrame(page, fg_color="transparent")
         metrics.grid(row=1, column=0, sticky="nsew", padx=(0, 12), pady=(0, 16))
-        metrics.grid_columnconfigure((0, 1, 2), weight=1)
-        self._metric_card(metrics, 0, "icon_calendar.png", "连续达标天数", self.hero_streak_var, "继续努力，养成创作习惯")
+        metrics.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        self._metric_card(metrics, 0, "icon_calendar.png", "连续创作", self.hero_streak_var, "当前连续 / 历史最高")
         self._metric_card(metrics, 1, "icon_target.png", "本周达标率", self.hero_week_rate_var, "本周目标完成情况")
-        self._metric_card(metrics, 2, "icon_game_orange.png", "今日娱乐时长", self.hero_game_var, "娱乐有度，生活更精彩")
+        self._metric_card(metrics, 2, "icon_play.png", "最长专注", self.best_focus_var, "今日最佳记录")
+        self._metric_card(metrics, 3, "icon_game_orange.png", "今日娱乐时长", self.hero_game_var, "娱乐有度，生活更精彩")
 
         self._build_action_panel(page, row=1, column=1)
 
@@ -806,14 +824,20 @@ class FocusDawnApp(ctk.CTk):
         self.heatmap_frame = ctk.CTkFrame(heat_card, fg_color="transparent")
         self.heatmap_frame.pack(fill="x", padx=18, pady=18)
 
+        review_card = self._card(page)
+        review_card.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(0, SPACE["card"]))
+        ctk.CTkLabel(review_card, text="本周创作报告", font=(FONT_FAMILY, 18, "bold"), text_color=COLORS["text"]).pack(anchor="w", padx=18, pady=(18, 10))
+        self.weekly_review_frame = ctk.CTkFrame(review_card, fg_color="transparent")
+        self.weekly_review_frame.pack(fill="x", padx=18, pady=(0, 18))
+
         goal_card = self._card(page)
-        goal_card.grid(row=4, column=0, sticky="nsew", padx=(0, 12), pady=(0, SPACE["card"]))
+        goal_card.grid(row=5, column=0, sticky="nsew", padx=(0, 12), pady=(0, SPACE["card"]))
         ctk.CTkLabel(goal_card, text="创作方向排行榜", font=(FONT_FAMILY, 18, "bold"), text_color=COLORS["text"]).pack(anchor="w", padx=18, pady=(18, 10))
         self.goal_rank_frame = ctk.CTkFrame(goal_card, fg_color="transparent")
         self.goal_rank_frame.pack(fill="x", padx=14, pady=(0, 16))
 
         weekly_goal_card = self._card(page)
-        weekly_goal_card.grid(row=4, column=1, sticky="nsew", padx=(12, 0), pady=(0, SPACE["card"]))
+        weekly_goal_card.grid(row=5, column=1, sticky="nsew", padx=(12, 0), pady=(0, SPACE["card"]))
         ctk.CTkLabel(weekly_goal_card, text="本周目标完成情况", font=(FONT_FAMILY, 18, "bold"), text_color=COLORS["text"]).pack(anchor="w", padx=18, pady=(18, 10))
         self.analysis_weekly_goal_frame = ctk.CTkFrame(weekly_goal_card, fg_color="transparent")
         self.analysis_weekly_goal_frame.pack(fill="x", padx=14, pady=(0, 16))
@@ -1314,7 +1338,14 @@ class FocusDawnApp(ctk.CTk):
         self._analysis_rows_cache = rows
         analysis = build_analysis(rows)
         total_game = sum(int(row.get("game_seconds") or 0) for row in rows)
-        self.hero_streak_var.set(f"{analysis.consecutive_days} 天")
+        streak = get_streak_stats()
+        best_session = get_best_creative_session()
+        best_focus_text = "暂无记录"
+        if best_session:
+            best_focus_text = _fmt_seconds(int(best_session["duration_seconds"]))
+        self.hero_streak_var.set(f"{streak['current_streak']} 天 / {streak['best_streak']} 天")
+        self.hero_best_streak_var.set(f"最高 {streak['best_streak']} 天")
+        self.best_focus_var.set(best_focus_text)
         self.hero_week_rate_var.set(f"{analysis.week_completion_rate * 100:.0f}%")
         self.summary_values["days"].set(str(analysis.days))
         self.summary_values["creative"].set(_fmt_seconds(analysis.total_creative_seconds))
@@ -1323,7 +1354,8 @@ class FocusDawnApp(ctk.CTk):
         self.week_chart.set_data(rows[:7], "creative")
         self.creative_chart.set_data(rows, "creative")
         self.game_chart.set_data(rows, "game")
-        self._render_heatmap(rows)
+        self._render_heatmap(get_recent_summaries(limit=35))
+        self._render_weekly_review()
         self._render_weekly_goal_progress()
         self._render_goal_analysis()
         self._render_sessions()
@@ -1332,17 +1364,75 @@ class FocusDawnApp(ctk.CTk):
     def _render_heatmap(self, rows: list[dict[str, object]]) -> None:
         for child in self.heatmap_frame.winfo_children():
             child.destroy()
-        ordered = list(reversed(rows[-30:] if len(rows) > 30 else rows))
+        ordered = list(reversed(rows[-35:] if len(rows) > 35 else rows))
         if not ordered:
             ctk.CTkLabel(self.heatmap_frame, text="暂无数据", text_color=COLORS["text_muted"]).pack(anchor="w")
             return
         for idx, row in enumerate(ordered):
             creative = int(row.get("creative_seconds") or 0)
-            target = int(row.get("target_minutes") or 0) * 60
-            color = COLORS["success"] if creative >= target and target > 0 else COLORS["border"]
-            cell = ctk.CTkFrame(self.heatmap_frame, width=22, height=22, corner_radius=6, fg_color=color)
-            cell.grid(row=idx // 15, column=idx % 15, padx=4, pady=4)
+            if creative <= 0:
+                color = "#1F2937"
+            elif creative < 30 * 60:
+                color = "#1E3A8A"
+            elif creative < 60 * 60:
+                color = COLORS["brand"]
+            else:
+                color = COLORS["brand_light"]
+            cell = ctk.CTkFrame(self.heatmap_frame, width=20, height=20, corner_radius=5, fg_color=color, border_width=1, border_color="#243247")
+            cell.grid(row=idx // 14, column=idx % 14, padx=4, pady=4)
             cell.grid_propagate(False)
+        legend = ctk.CTkFrame(self.heatmap_frame, fg_color="transparent")
+        legend.grid(row=3, column=0, columnspan=14, sticky="w", pady=(10, 0))
+        for idx, (label, color) in enumerate((
+            ("0 分钟", "#1F2937"),
+            ("1-30 分钟", "#1E3A8A"),
+            ("30-60 分钟", COLORS["brand"]),
+            ("60 分钟以上", COLORS["brand_light"]),
+        )):
+            ctk.CTkLabel(legend, text="■", text_color=color, font=(FONT_FAMILY, 13)).grid(row=0, column=idx * 2, sticky="w", padx=(0 if idx == 0 else 14, 4))
+            ctk.CTkLabel(legend, text=label, text_color=COLORS["text_muted"], font=(FONT_FAMILY, 11)).grid(row=0, column=idx * 2 + 1, sticky="w")
+
+    def _render_weekly_review(self) -> None:
+        for child in self.weekly_review_frame.winfo_children():
+            child.destroy()
+        review = get_weekly_review()
+        delta = int(review["creative_delta_seconds"])
+        if delta > 0:
+            summary = f"比上周多创作了 {_fmt_seconds(delta)}。"
+            summary_color = COLORS["success"]
+        elif delta < 0:
+            summary = f"比上周少创作了 {_fmt_seconds(abs(delta))}。"
+            summary_color = COLORS["warning"]
+        else:
+            summary = "和上周创作时长持平。"
+            summary_color = COLORS["text_secondary"]
+
+        best_day = str(review["best_day"] or "")
+        best_day_text = "暂无记录"
+        if best_day:
+            best_day_text = f"{_weekday_text(best_day)} · {_fmt_seconds(int(review['best_day_creative_seconds']))}"
+
+        items = [
+            ("总创作时长", _fmt_seconds(int(review["total_creative_seconds"]))),
+            ("达标天数", f"{int(review['completed_days'])} / 7"),
+            ("连续创作", f"{int(review['creative_streak_days'])} 天"),
+            ("娱乐时长", _fmt_seconds(int(review["total_game_seconds"]))),
+            ("创作最多的一天", best_day_text),
+        ]
+        grid = ctk.CTkFrame(self.weekly_review_frame, fg_color="transparent")
+        grid.pack(fill="x")
+        grid.grid_columnconfigure((0, 1, 2, 3, 4), weight=1)
+        for idx, (title, value) in enumerate(items):
+            card = ctk.CTkFrame(grid, fg_color=COLORS["card_soft"], corner_radius=14, border_width=1, border_color=COLORS["border"])
+            card.grid(row=0, column=idx, sticky="nsew", padx=(0 if idx == 0 else 10, 0))
+            ctk.CTkLabel(card, text=title, text_color=COLORS["text_secondary"], font=(FONT_FAMILY, 12)).pack(anchor="w", padx=14, pady=(12, 4))
+            ctk.CTkLabel(card, text=value, text_color=COLORS["text"], font=(FONT_FAMILY, 15, "bold")).pack(anchor="w", padx=14, pady=(0, 12))
+        ctk.CTkLabel(
+            self.weekly_review_frame,
+            text=summary,
+            text_color=summary_color,
+            font=(FONT_FAMILY, 13, "bold"),
+        ).pack(anchor="w", pady=(14, 0))
 
     def _render_table(self, parent: ctk.CTkFrame, headers: list[str], rows: list[list[str]], widths: list[int]) -> None:
         for child in parent.winfo_children():

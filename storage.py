@@ -586,6 +586,133 @@ def get_goal_time_stats(limit: int | None = None) -> list[dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def get_streak_stats() -> dict[str, int]:
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT day, creative_seconds, target_minutes
+            FROM daily_summary
+            ORDER BY day ASC
+            """
+        ).fetchall()
+
+    completed_days = {
+        row["day"]
+        for row in rows
+        if int(row["creative_seconds"] or 0) >= int(row["target_minutes"] or 0) * 60
+    }
+
+    today = date.today()
+    current_streak = 0
+    cursor = today
+    while cursor.isoformat() in completed_days:
+        current_streak += 1
+        cursor -= timedelta(days=1)
+
+    best_streak = 0
+    running = 0
+    previous_day: date | None = None
+    for row in rows:
+        day = date.fromisoformat(str(row["day"]))
+        is_completed = str(row["day"]) in completed_days
+        if is_completed:
+            if previous_day is not None and day == previous_day + timedelta(days=1):
+                running += 1
+            else:
+                running = 1
+            best_streak = max(best_streak, running)
+        else:
+            running = 0
+        previous_day = day
+
+    return {
+        "current_streak": current_streak,
+        "best_streak": best_streak,
+    }
+
+
+def get_best_creative_session(day: str | None = None) -> dict[str, Any] | None:
+    day = day or get_today_day()
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT day, goal_id, goal_name, start_at, end_at, duration_seconds
+            FROM creative_sessions
+            WHERE day = ?
+            ORDER BY duration_seconds DESC, id DESC
+            LIMIT 1
+            """,
+            (day,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_weekly_review(week_start_date: str | None = None) -> dict[str, Any]:
+    week_start_date = week_start_date or get_week_start()
+    start = date.fromisoformat(week_start_date)
+    end = start + timedelta(days=6)
+    previous_start = start - timedelta(days=7)
+    previous_end = start - timedelta(days=1)
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT day, creative_seconds, game_seconds, target_minutes
+            FROM daily_summary
+            WHERE day BETWEEN ? AND ?
+            ORDER BY day ASC
+            """,
+            (start.isoformat(), end.isoformat()),
+        ).fetchall()
+        previous = conn.execute(
+            """
+            SELECT COALESCE(SUM(creative_seconds), 0) AS creative_seconds
+            FROM daily_summary
+            WHERE day BETWEEN ? AND ?
+            """,
+            (previous_start.isoformat(), previous_end.isoformat()),
+        ).fetchone()
+
+    row_by_day = {str(row["day"]): row for row in rows}
+    total_creative_seconds = sum(int(row["creative_seconds"] or 0) for row in rows)
+    total_game_seconds = sum(int(row["game_seconds"] or 0) for row in rows)
+    completed_days = sum(
+        1
+        for row in rows
+        if int(row["creative_seconds"] or 0) >= int(row["target_minutes"] or 0) * 60
+    )
+    best_day = None
+    best_day_seconds = 0
+    longest_creative_streak = 0
+    running_creative_streak = 0
+    today = date.today()
+    for offset in range(7):
+        day = start + timedelta(days=offset)
+        row = row_by_day.get(day.isoformat())
+        creative_seconds = int(row["creative_seconds"] or 0) if row else 0
+        if creative_seconds > best_day_seconds:
+            best_day = day.isoformat()
+            best_day_seconds = creative_seconds
+        if day <= today and creative_seconds > 0:
+            running_creative_streak += 1
+            longest_creative_streak = max(longest_creative_streak, running_creative_streak)
+        else:
+            running_creative_streak = 0
+
+    previous_creative_seconds = int(previous["creative_seconds"] or 0) if previous else 0
+    return {
+        "week_start_date": start.isoformat(),
+        "week_end_date": end.isoformat(),
+        "total_creative_seconds": total_creative_seconds,
+        "total_game_seconds": total_game_seconds,
+        "completed_days": completed_days,
+        "creative_streak_days": longest_creative_streak,
+        "best_day": best_day,
+        "best_day_creative_seconds": best_day_seconds,
+        "previous_creative_seconds": previous_creative_seconds,
+        "creative_delta_seconds": total_creative_seconds - previous_creative_seconds,
+    }
+
+
 def update_daily_target(day: str, target_minutes: int) -> None:
     with _connect() as conn:
         conn.execute(
