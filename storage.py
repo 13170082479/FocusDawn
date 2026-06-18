@@ -702,15 +702,26 @@ def get_weekly_review(week_start_date: str | None = None) -> dict[str, Any]:
     return {
         "week_start_date": start.isoformat(),
         "week_end_date": end.isoformat(),
+        "iso_year": start.isocalendar().year,
+        "iso_week": start.isocalendar().week,
         "total_creative_seconds": total_creative_seconds,
         "total_game_seconds": total_game_seconds,
         "completed_days": completed_days,
+        "completion_rate": completed_days / 7,
         "creative_streak_days": longest_creative_streak,
         "best_day": best_day,
         "best_day_creative_seconds": best_day_seconds,
         "previous_creative_seconds": previous_creative_seconds,
         "creative_delta_seconds": total_creative_seconds - previous_creative_seconds,
     }
+
+
+def get_weekly_reviews(limit: int = 8) -> list[dict[str, Any]]:
+    current_start = date.fromisoformat(get_week_start())
+    return [
+        get_weekly_review((current_start - timedelta(days=7 * index)).isoformat())
+        for index in range(max(1, limit))
+    ]
 
 
 def update_daily_target(day: str, target_minutes: int) -> None:

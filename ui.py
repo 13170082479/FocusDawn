@@ -31,6 +31,7 @@ from storage import (
     get_streak_stats,
     get_week_start,
     get_weekly_review,
+    get_weekly_reviews,
     get_weekly_goal_progress,
     get_weekly_goals,
     init_db,
@@ -830,14 +831,20 @@ class FocusDawnApp(ctk.CTk):
         self.weekly_review_frame = ctk.CTkFrame(review_card, fg_color="transparent")
         self.weekly_review_frame.pack(fill="x", padx=18, pady=(0, 18))
 
+        history_card = self._card(page)
+        history_card.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(0, SPACE["card"]))
+        ctk.CTkLabel(history_card, text="历史周报", font=(FONT_FAMILY, 18, "bold"), text_color=COLORS["text"]).pack(anchor="w", padx=18, pady=(18, 10))
+        self.weekly_history_frame = ctk.CTkFrame(history_card, fg_color="transparent")
+        self.weekly_history_frame.pack(fill="x", padx=14, pady=(0, 16))
+
         goal_card = self._card(page)
-        goal_card.grid(row=5, column=0, sticky="nsew", padx=(0, 12), pady=(0, SPACE["card"]))
+        goal_card.grid(row=6, column=0, sticky="nsew", padx=(0, 12), pady=(0, SPACE["card"]))
         ctk.CTkLabel(goal_card, text="创作方向排行榜", font=(FONT_FAMILY, 18, "bold"), text_color=COLORS["text"]).pack(anchor="w", padx=18, pady=(18, 10))
         self.goal_rank_frame = ctk.CTkFrame(goal_card, fg_color="transparent")
         self.goal_rank_frame.pack(fill="x", padx=14, pady=(0, 16))
 
         weekly_goal_card = self._card(page)
-        weekly_goal_card.grid(row=5, column=1, sticky="nsew", padx=(12, 0), pady=(0, SPACE["card"]))
+        weekly_goal_card.grid(row=6, column=1, sticky="nsew", padx=(12, 0), pady=(0, SPACE["card"]))
         ctk.CTkLabel(weekly_goal_card, text="本周目标完成情况", font=(FONT_FAMILY, 18, "bold"), text_color=COLORS["text"]).pack(anchor="w", padx=18, pady=(18, 10))
         self.analysis_weekly_goal_frame = ctk.CTkFrame(weekly_goal_card, fg_color="transparent")
         self.analysis_weekly_goal_frame.pack(fill="x", padx=14, pady=(0, 16))
@@ -1356,6 +1363,7 @@ class FocusDawnApp(ctk.CTk):
         self.game_chart.set_data(rows, "game")
         self._render_heatmap(get_recent_summaries(limit=35))
         self._render_weekly_review()
+        self._render_weekly_history()
         self._render_weekly_goal_progress()
         self._render_goal_analysis()
         self._render_sessions()
@@ -1433,6 +1441,34 @@ class FocusDawnApp(ctk.CTk):
             text_color=summary_color,
             font=(FONT_FAMILY, 13, "bold"),
         ).pack(anchor="w", pady=(14, 0))
+
+    def _render_weekly_history(self) -> None:
+        for child in self.weekly_history_frame.winfo_children():
+            child.destroy()
+        rows = []
+        for review in get_weekly_reviews(limit=8):
+            delta = int(review["creative_delta_seconds"])
+            trend = "持平"
+            if delta > 0:
+                trend = f"+{_fmt_seconds(delta)}"
+            elif delta < 0:
+                trend = f"-{_fmt_seconds(abs(delta))}"
+            rows.append(
+                [
+                    f"{review['iso_year']} 第 {int(review['iso_week']):02d} 周",
+                    _fmt_seconds(int(review["total_creative_seconds"])),
+                    f"{int(review['completed_days'])} / 7",
+                    _fmt_seconds(int(review["total_game_seconds"])),
+                    f"{int(float(review['completion_rate']) * 100)}%",
+                    trend,
+                ]
+            )
+        self._render_table(
+            self.weekly_history_frame,
+            ["周次", "创作", "达标天数", "娱乐", "完成率", "较上周"],
+            rows,
+            [150, 130, 110, 130, 90, 140],
+        )
 
     def _render_table(self, parent: ctk.CTkFrame, headers: list[str], rows: list[list[str]], widths: list[int]) -> None:
         for child in parent.winfo_children():
