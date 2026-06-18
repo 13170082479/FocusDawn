@@ -16,6 +16,7 @@ from analyzer import build_analysis, seconds_to_minutes
 from config import AUTO_KILL_GRACE_SECONDS, DEFAULT_DAILY_GOAL_MINUTES
 from design_tokens import BUTTON_HEIGHT, COLORS, FONT_FAMILY, RADIUS, SPACE
 from storage import (
+    archive_goal,
     create_goal,
     get_creative_sessions,
     get_game_events,
@@ -32,6 +33,7 @@ from storage import (
     record_game_event,
     set_weekly_goal,
     set_setting,
+    update_goal,
 )
 from startup import disable_startup, enable_startup, is_startup_enabled
 from tracker import AppTracker
@@ -101,6 +103,14 @@ def _minutes_from_weekly_option(option: str, custom_hours: str) -> int:
     if not raw:
         return 0
     return max(0, int(float(raw) * 60))
+
+
+def _color_label_from_hex(color: str) -> str:
+    clean = color.strip().lower()
+    for label, value in GOAL_COLOR_OPTIONS.items():
+        if value.lower() == clean:
+            return label
+    return "晨蓝"
 
 
 class ProgressRing(tk.Canvas):
@@ -911,7 +921,7 @@ class FocusDawnApp(ctk.CTk):
             card.grid_columnconfigure(1, weight=1)
             color = str(row.get("color") or COLORS["brand"])
             ctk.CTkLabel(card, text="●", text_color=color, font=(FONT_FAMILY, 26, "bold")).grid(row=0, column=0, rowspan=3, sticky="n", padx=(18, 14), pady=18)
-            ctk.CTkLabel(card, text=str(row["goal_name"]), text_color=COLORS["text"], font=(FONT_FAMILY, 18, "bold")).grid(row=0, column=1, sticky="w", pady=(18, 4))
+            ctk.CTkLabel(card, text=f"{row.get('icon') or 'Target'} · {row['goal_name']}", text_color=COLORS["text"], font=(FONT_FAMILY, 18, "bold")).grid(row=0, column=1, sticky="w", pady=(18, 4))
             status_text = "未设置周目标"
             if target_minutes > 0:
                 status_text = "已超额完成" if remaining < 0 else f"剩余 {_fmt_goal_minutes(remaining)}"
@@ -950,6 +960,33 @@ class FocusDawnApp(ctk.CTk):
                 border_color=COLORS["border"],
             ).grid(row=0, column=1, sticky="e")
             ctk.CTkLabel(control, text="小时 / 周", text_color=COLORS["text_secondary"], font=(FONT_FAMILY, 12)).grid(row=0, column=2, sticky="e", padx=(8, 0))
+
+            actions = ctk.CTkFrame(card, fg_color="transparent")
+            actions.grid(row=2, column=2, sticky="e", padx=18, pady=(0, 12))
+            ctk.CTkButton(
+                actions,
+                text="编辑",
+                width=72,
+                height=30,
+                fg_color="transparent",
+                border_width=1,
+                border_color=COLORS["border"],
+                text_color=COLORS["text_soft"],
+                hover_color=COLORS["bg_secondary"],
+                command=lambda item=dict(row): self._show_edit_goal_dialog(item),
+            ).grid(row=0, column=0, padx=(0, 8))
+            ctk.CTkButton(
+                actions,
+                text="归档",
+                width=72,
+                height=30,
+                fg_color="transparent",
+                border_width=1,
+                border_color=COLORS["danger"],
+                text_color=COLORS["danger"],
+                hover_color=COLORS["bg_secondary"],
+                command=lambda item=dict(row): self._archive_goal_from_card(item),
+            ).grid(row=0, column=1)
 
             bar = ctk.CTkProgressBar(card, height=10, fg_color=COLORS["bg_secondary"], progress_color=color)
             bar.grid(row=3, column=1, columnspan=2, sticky="ew", padx=(0, 18), pady=(0, 18))
@@ -1008,6 +1045,75 @@ class FocusDawnApp(ctk.CTk):
         self.new_goal_name_var.set("")
         if dialog is not None and dialog.winfo_exists():
             dialog.destroy()
+        self._render_weekly_goal_settings()
+        self._refresh_now()
+
+    def _show_edit_goal_dialog(self, goal: dict[str, object]) -> None:
+        name_var = tk.StringVar(value=str(goal.get("goal_name") or goal.get("name") or ""))
+        icon_var = tk.StringVar(value=str(goal.get("icon") or GOAL_ICON_OPTIONS[0]))
+        color_var = tk.StringVar(value=_color_label_from_hex(str(goal.get("color") or COLORS["brand"])))
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("编辑目标")
+        dialog.geometry("460x340")
+        dialog.attributes("-topmost", True)
+        dialog.configure(fg_color=COLORS["bg"])
+        ctk.CTkLabel(dialog, text="编辑目标", font=(FONT_FAMILY, 22, "bold"), text_color=COLORS["text"]).pack(anchor="w", padx=24, pady=(24, 6))
+        ctk.CTkLabel(dialog, text="修改目标信息不会影响历史创作记录中的目标名称快照。", font=(FONT_FAMILY, 13), text_color=COLORS["text_secondary"], wraplength=400).pack(anchor="w", padx=24, pady=(0, 18))
+
+        form = ctk.CTkFrame(dialog, fg_color="transparent")
+        form.pack(fill="x", padx=24)
+        form.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(form, text="目标名称", text_color=COLORS["text_secondary"]).grid(row=0, column=0, sticky="w", pady=8)
+        ctk.CTkEntry(form, textvariable=name_var, height=38, fg_color=COLORS["bg_secondary"], border_color=COLORS["border"]).grid(row=0, column=1, sticky="ew", pady=8)
+        ctk.CTkLabel(form, text="图标", text_color=COLORS["text_secondary"]).grid(row=1, column=0, sticky="w", pady=8)
+        ctk.CTkOptionMenu(form, values=GOAL_ICON_OPTIONS, variable=icon_var, height=38, fg_color=COLORS["bg_secondary"], button_color=COLORS["border"], button_hover_color=COLORS["brand"]).grid(row=1, column=1, sticky="ew", pady=8)
+        ctk.CTkLabel(form, text="颜色", text_color=COLORS["text_secondary"]).grid(row=2, column=0, sticky="w", pady=8)
+        ctk.CTkOptionMenu(form, values=list(GOAL_COLOR_OPTIONS.keys()), variable=color_var, height=38, fg_color=COLORS["bg_secondary"], button_color=COLORS["border"], button_hover_color=COLORS["brand"]).grid(row=2, column=1, sticky="ew", pady=8)
+
+        buttons = ctk.CTkFrame(dialog, fg_color="transparent")
+        buttons.pack(fill="x", padx=24, pady=(24, 0))
+        buttons.grid_columnconfigure((0, 1), weight=1)
+        ctk.CTkButton(buttons, text="取消", height=40, fg_color="transparent", border_width=1, border_color=COLORS["border"], command=dialog.destroy).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        ctk.CTkButton(
+            buttons,
+            text="保存修改",
+            height=40,
+            fg_color=COLORS["brand"],
+            hover_color=COLORS["brand_hover"],
+            command=lambda: self._update_goal_from_dialog(str(goal["goal_id"]), name_var, icon_var, color_var, dialog),
+        ).grid(row=0, column=1, sticky="ew", padx=(8, 0))
+
+    def _update_goal_from_dialog(
+        self,
+        goal_id: str,
+        name_var: tk.StringVar,
+        icon_var: tk.StringVar,
+        color_var: tk.StringVar,
+        dialog: ctk.CTkToplevel,
+    ) -> None:
+        try:
+            update_goal(goal_id, name_var.get(), icon_var.get(), GOAL_COLOR_OPTIONS.get(color_var.get(), COLORS["brand"]))
+        except ValueError as exc:
+            messagebox.showerror("目标错误", str(exc))
+            return
+        if dialog.winfo_exists():
+            dialog.destroy()
+        self._render_weekly_goal_settings()
+        self._refresh_now()
+
+    def _archive_goal_from_card(self, goal: dict[str, object]) -> None:
+        goal_name = str(goal.get("goal_name") or goal.get("name") or "该目标")
+        confirmed = messagebox.askyesno(
+            "归档目标",
+            f"确认归档「{goal_name}」吗？\n\n历史创作记录会保留，但它不会再出现在开始创作和本周计划列表中。",
+        )
+        if not confirmed:
+            return
+        try:
+            archive_goal(str(goal["goal_id"]))
+        except ValueError as exc:
+            messagebox.showerror("目标错误", str(exc))
+            return
         self._render_weekly_goal_settings()
         self._refresh_now()
 

@@ -395,6 +395,49 @@ def create_goal(name: str, icon: str = "PenLine", color: str = "#4D8EFF") -> dic
     }
 
 
+def update_goal(goal_id: str, name: str, icon: str, color: str) -> None:
+    if goal_id == UNCATEGORIZED_GOAL_ID:
+        raise ValueError("未分类目标不能编辑。")
+    clean_name = name.strip()
+    if not clean_name:
+        raise ValueError("目标名称不能为空。")
+    timestamp = now_iso()
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE goals
+            SET name = ?, icon = ?, color = ?, updated_at = ?
+            WHERE id = ? AND archived = 0
+            """,
+            (clean_name, icon.strip() or "PenLine", color.strip() or "#4D8EFF", timestamp, goal_id),
+        )
+        conn.execute(
+            """
+            UPDATE weekly_goals
+            SET goal_name = ?, updated_at = ?
+            WHERE goal_id = ?
+            """,
+            (clean_name, timestamp, goal_id),
+        )
+        conn.commit()
+
+
+def archive_goal(goal_id: str) -> None:
+    if goal_id == UNCATEGORIZED_GOAL_ID:
+        raise ValueError("未分类目标不能归档。")
+    timestamp = now_iso()
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE goals
+            SET archived = 1, updated_at = ?
+            WHERE id = ?
+            """,
+            (timestamp, goal_id),
+        )
+        conn.commit()
+
+
 def get_last_goal() -> dict[str, Any] | None:
     with _connect() as conn:
         row = conn.execute(
@@ -402,7 +445,7 @@ def get_last_goal() -> dict[str, Any] | None:
             SELECT g.id, g.name, g.icon, g.color, g.archived, g.created_at, g.updated_at
             FROM creative_sessions s
             LEFT JOIN goals g ON g.id = s.goal_id
-            WHERE s.goal_id IS NOT NULL AND s.goal_id != ?
+            WHERE s.goal_id IS NOT NULL AND s.goal_id != ? AND COALESCE(g.archived, 0) = 0
             ORDER BY s.id DESC
             LIMIT 1
             """,
@@ -423,6 +466,7 @@ def get_recent_goals(limit: int = 3) -> list[dict[str, Any]]:
                 MAX(s.id) AS last_session_id
             FROM creative_sessions s
             LEFT JOIN goals g ON g.id = s.goal_id
+            WHERE COALESCE(g.archived, 0) = 0
             GROUP BY s.goal_id, COALESCE(g.name, s.goal_name), COALESCE(g.icon, 'Circle'), COALESCE(g.color, '#64748B')
             ORDER BY last_session_id DESC
             LIMIT ?
@@ -523,14 +567,14 @@ def get_goal_time_stats(limit: int | None = None) -> list[dict[str, Any]]:
     query = """
         SELECT
             s.goal_id,
-            s.goal_name,
+            COALESCE(g.name, MAX(s.goal_name)) AS goal_name,
             COALESCE(g.icon, 'Circle') AS icon,
             COALESCE(g.color, '#64748B') AS color,
             COALESCE(SUM(s.duration_seconds), 0) AS total_seconds,
             COUNT(s.id) AS session_count
         FROM creative_sessions s
         LEFT JOIN goals g ON g.id = s.goal_id
-        GROUP BY s.goal_id, s.goal_name, g.icon, g.color
+        GROUP BY s.goal_id, g.name, g.icon, g.color
         ORDER BY total_seconds DESC
     """
     params: list[Any] = []
